@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text;
-using Microsoft.Data.Sqlite;
 
 namespace MicroJournal;
 
@@ -18,7 +17,30 @@ internal static class App
         if (content == null)
             return;
 
-        InsertEntry(dataPath, content);
+        if (content.Length == 0)
+        {
+            Console.WriteLine("No content provided, exiting.");
+            return;
+        }
+
+        using (Database db = new(dataPath))
+        {
+            db.InsertEntry(DateTime.UtcNow, content);
+        }
+    }
+
+    public static void LogEntries(string dataPath, int maxNumEntries)
+    {
+        using (Database db = new(dataPath))
+        {
+            ICollection<Entry> entries = db.GetRecentEntries(maxNumEntries);
+            foreach (Entry entry in entries)
+            {
+                Console.WriteLine(entry.DateTime.ToLocalTime());
+                Console.WriteLine(entry.Content);
+                Console.WriteLine();
+            }
+        }
     }
 
     private static string? CreateEntryBuffer()
@@ -33,6 +55,7 @@ internal static class App
                 sw.WriteLine();
                 sw.WriteLine(@"// This is a buffer for a new micro-journal entry.");
                 sw.WriteLine(@"// The lines that start with '//' will be ignored.");
+                sw.WriteLine(@"// Don't forget to save before closing!");
             }
         }
         catch (Exception e)
@@ -60,37 +83,13 @@ internal static class App
         using (StreamReader sr = new(fs))
         {
             StringBuilder stringBuilder = new();
-            for (string? line = sr.ReadLine(); line != null && !line.StartsWith("//"); line = sr.ReadLine())
+            for (string? line = sr.ReadLine(); line != null; line = sr.ReadLine())
             {
-                stringBuilder.AppendLine(line);
+                if (!line.StartsWith("//"))
+                    stringBuilder.AppendLine(line);
             }
-            return stringBuilder.ToString();
-        }
-    }
-
-    private static void InsertEntry(string dataPath, string content)
-    {
-        using (SqliteConnection connection = new($"Data Source={dataPath}"))
-        {
-            connection.Open();
-
-            SqliteCommand command = connection.CreateCommand();
-
-            command.CommandText =
-                @"CREATE TABLE IF NOT EXISTS entries (
-					id INTEGER PRIMARY KEY,
-					createdAt REAL NOT NULL,
-					content TEXT NOT NULL)";
-            command.ExecuteNonQuery();
-
-            command.CommandText =
-                @"INSERT INTO entries (createdAt, content)
-					VALUES ($createdAt, $content)";
-            command.Parameters.AddWithValue("$createdAt", DateTime.UtcNow);
-            command.Parameters.AddWithValue("$content", content);
-            command.ExecuteNonQuery();
-
-            connection.Close();
+            string content = stringBuilder.ToString();
+            return content.TrimEnd();
         }
     }
 }
